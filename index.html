@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ক্যান্ডেল চার্ট - জুম সুবিধা সহ</title>
+    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background-color: #0a0e17;
+            color: #e0e0e0;
+            overflow: hidden;
+        }
+        
+        .container {
+            width: 100vw;
+            height: 100vh;
+            padding: 10px;
+        }
+        
+        #candlestick-chart {
+            width: 100%;
+            height: 100%;
+        }
+        
+        .zoom-info {
+            position: fixed;
+            top: 15px;
+            right: 15px;
+            background: rgba(26, 34, 53, 0.9);
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-size: 12px;
+            color: #8a94a6;
+            z-index: 1000;
+        }
+        
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="zoom-info">
+            মাউস স্ক্রল দিয়ে জুম ইন-আউট করুন
+        </div>
+        <div id="candlestick-chart"></div>
+    </div>
+
+    <script>
+        // চার্ট তৈরি করা
+        const chart = LightweightCharts.createChart(document.getElementById('candlestick-chart'), {
+            width: document.getElementById('candlestick-chart').clientWidth,
+            height: document.getElementById('candlestick-chart').clientHeight,
+            layout: {
+                background: { color: '#0a0e17' },
+                textColor: '#d1d4dc',
+            },
+            grid: {
+                vertLines: { color: '#1e2532' },
+                horzLines: { color: '#1e2532' },
+            },
+            crosshair: {
+                mode: LightweightCharts.CrosshairMode.Normal,
+            },
+            rightPriceScale: {
+                borderColor: '#1e2532',
+            },
+            timeScale: {
+                borderColor: '#1e2532',
+                timeVisible: true,
+                secondsVisible: false,
+                barSpacing: 15,
+                minBarSpacing: 3, // মিনিমাম জুম
+            },
+            handleScroll: {
+                mouseWheel: true, // মাউস স্ক্রল সক্ষম করা
+                pressedMouseMove: true,
+            },
+            handleScale: {
+                axisPressedMouseMove: true,
+                mouseWheel: true,
+                pinch: true,
+            }
+        });
+        
+        const candlestickSeries = chart.addCandlestickSeries({
+            upColor: '#00c176',
+            downColor: '#ff3b69',
+            borderDownColor: '#ff3b69',
+            borderUpColor: '#00c176',
+            wickDownColor: '#ff3b69',
+            wickUpColor: '#00c176',
+        });
+        
+        // ভেরিয়েবল ডিক্লেয়ার
+        let allCandles = [];
+        let currentCandle = null;
+        let currentBarSpacing = 15;
+        
+        // localStorage থেকে ক্যান্ডেল লোড করা
+        function loadCandlesFromStorage() {
+            const savedCandles = localStorage.getItem('candleHistory');
+            if (savedCandles) {
+                allCandles = JSON.parse(savedCandles);
+                console.log(`লোড করা হয়েছে ${allCandles.length}টি ক্যান্ডেল`);
+            }
+        }
+        
+        // localStorage-এ ক্যান্ডেল সেভ করা
+        function saveCandlesToStorage() {
+            localStorage.setItem('candleHistory', JSON.stringify(allCandles));
+        }
+        
+        // জুম কন্ট্রোল ফাংশন
+        function setupZoomControls() {
+            const chartElement = document.getElementById('candlestick-chart');
+            
+            // মাউস স্ক্রল ইভেন্ট
+            chartElement.addEventListener('wheel', function(e) {
+                e.preventDefault();
+                
+                const delta = e.deltaY;
+                const timeScale = chart.timeScale();
+                
+                if (delta < 0) {
+                    // জুম ইন (স্ক্রল আপ)
+                    currentBarSpacing = Math.min(50, currentBarSpacing * 1.2);
+                } else {
+                    // জুম আউট (স্ক্রল ডাউন)
+                    currentBarSpacing = Math.max(3, currentBarSpacing / 1.2);
+                }
+                
+                timeScale.applyOptions({
+                    barSpacing: currentBarSpacing
+                });
+            });
+            
+            // কী-বোর্ড শর্টকাট
+            document.addEventListener('keydown', function(e) {
+                const timeScale = chart.timeScale();
+                
+                switch(e.key) {
+                    case '+':
+                    case '=':
+                        // জুম ইন
+                        e.preventDefault();
+                        currentBarSpacing = Math.min(50, currentBarSpacing * 1.2);
+                        timeScale.applyOptions({ barSpacing: currentBarSpacing });
+                        break;
+                        
+                    case '-':
+                        // জুম আউট
+                        e.preventDefault();
+                        currentBarSpacing = Math.max(3, currentBarSpacing / 1.2);
+                        timeScale.applyOptions({ barSpacing: currentBarSpacing });
+                        break;
+                        
+                    case '0':
+                        // রিসেট জুম
+                        e.preventDefault();
+                        currentBarSpacing = 15;
+                        timeScale.applyOptions({ barSpacing: currentBarSpacing });
+                        timeScale.fitContent();
+                        break;
+                }
+            });
+        }
+        
+        // চার্ট ইনিশিয়ালাইজ করা
+        function initializeChart() {
+            // localStorage থেকে পুরনো ক্যান্ডেল লোড করা
+            loadCandlesFromStorage();
+            
+            // যদি কোন ক্যান্ডেল না থাকে, তাহলে কিছু স্টার্টিং ক্যান্ডেল তৈরি করা
+            if (allCandles.length === 0) {
+                const startPrice = 45678.90;
+                const now = Math.floor(Date.now() / 1000);
+                
+                // ২০টি স্টার্টিং ক্যান্ডেল তৈরি করা
+                for (let i = 20; i > 0; i--) {
+                    const time = now - (i * 60);
+                    const open = startPrice * (1 + (Math.random() - 0.5) * 0.02);
+                    const close = open * (1 + (Math.random() - 0.5) * 0.03);
+                    const high = Math.max(open, close) * (1 + Math.random() * 0.01);
+                    const low = Math.min(open, close) * (1 - Math.random() * 0.01);
+                    
+                    allCandles.push({
+                        time: time,
+                        open: open,
+                        high: high,
+                        low: low,
+                        close: close,
+                    });
+                }
+                saveCandlesToStorage();
+            }
+            
+            // বর্তমান ক্যান্ডেল শুরু করা
+            startNewCandle();
+            
+            // চার্ট আপডেট করা
+            updateChart();
+            
+            // জুম কন্ট্রোল সেটআপ করা
+            setupZoomControls();
+        }
+        
+        // নতুন ক্যান্ডেল শুরু করা
+        function startNewCandle() {
+            const lastCandle = allCandles.length > 0 ? allCandles[allCandles.length - 1] : null;
+            const openPrice = lastCandle ? lastCandle.close : 45678.90;
+            
+            const candleStartTime = Math.floor(Date.now() / 1000);
+            
+            currentCandle = {
+                time: candleStartTime,
+                open: openPrice,
+                high: openPrice,
+                low: openPrice,
+                close: openPrice,
+            };
+            
+            // লাইভ আপডেট শুরু করা
+            startLiveUpdates();
+            
+            // ১ মিনিট পর ক্যান্ডেল শেষ করার টাইমার সেট করা
+            setTimeout(finishCandle, 60000);
+        }
+        
+        // লাইভ প্রাইস আপডেট করা
+        function startLiveUpdates() {
+            const liveInterval = setInterval(() => {
+                if (!currentCandle) {
+                    clearInterval(liveInterval);
+                    return;
+                }
+                
+                const lastPrice = currentCandle.close;
+                
+                // এলোমেলো প্রাইস মুভমেন্ট (-0.1% থেকে +0.1%)
+                const changePercent = (Math.random() - 0.5) * 0.2;
+                const newPrice = lastPrice * (1 + changePercent / 100);
+                
+                // ক্যান্ডেল আপডেট করা
+                currentCandle.high = Math.max(currentCandle.high, newPrice);
+                currentCandle.low = Math.min(currentCandle.low, newPrice);
+                currentCandle.close = newPrice;
+                
+                // চার্ট আপডেট করা
+                updateChart();
+                
+            }, 800); // প্রতি ০.৮ সেকেন্ডে আপডেট
+        }
+        
+        // ক্যান্ডেল শেষ করা
+        function finishCandle() {
+            // বর্তমান ক্যান্ডেলকে পুরানো ক্যান্ডেলের লিস্টে যোগ করা
+            if (currentCandle) {
+                allCandles.push({...currentCandle});
+                
+                // localStorage-এ সেভ করা
+                saveCandlesToStorage();
+                
+                currentCandle = null;
+                
+                console.log(`নতুন ক্যান্ডেল যোগ করা হয়েছে। মোট ক্যান্ডেল: ${allCandles.length}`);
+            }
+            
+            // নতুন ক্যান্ডেল শুরু করা
+            startNewCandle();
+        }
+        
+        // চার্ট আপডেট করা
+        function updateChart() {
+            const chartData = [...allCandles];
+            if (currentCandle) {
+                chartData.push({...currentCandle});
+            }
+            candlestickSeries.setData(chartData);
+        }
+        
+        // উইন্ডো রিসাইজ করার সময় চার্ট রিসাইজ করা
+        window.addEventListener('resize', function() {
+            chart.applyOptions({
+                width: document.getElementById('candlestick-chart').clientWidth,
+                height: document.getElementById('candlestick-chart').clientHeight,
+            });
+        });
+        
+        // পেজ আনলোড হওয়ার আগে ডেটা সেভ করা
+        window.addEventListener('beforeunload', function() {
+            if (currentCandle) {
+                // যদি বর্তমান ক্যান্ডেল চলমান থাকে, তাকে সেভ করা
+                allCandles.push({...currentCandle});
+                saveCandlesToStorage();
+            }
+        });
+        
+        // চার্ট ইনিশিয়ালাইজ করা
+        initializeChart();
+        
+        // ডিবাগিং এর জন্য কনসোলে মেসেজ
+        console.log('ক্যান্ডেল চার্ট শুরু হয়েছে!');
+        console.log('জুম কন্ট্রোল:');
+        console.log('- মাউস স্ক্রল: জুম ইন-আউট');
+        console.log('- + কী: জুম ইন');
+        console.log('- - কী: জুম আউট');
+        console.log('- 0 কী: জুম রিসেট');
+        console.log('সকল ক্যান্ডেল localStorage-এ সংরক্ষিত হবে');
+        
+    </script>
+</body>
+</html>
